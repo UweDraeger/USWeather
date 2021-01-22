@@ -1,0 +1,208 @@
+---
+title: "Effect of Weather Events in the US"
+author: "Uwe Draeger"
+date: "1/20/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+
+```
+
+## Synopsis
+
+The analysis is looking into the effects of specific weather events in the United States over a period of more than 60 years. 
+
+The project is based on an exploration of the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+Between 1950 and November 2011, Tornadoes were the most harmful type of events to the population.
+This is true regardless of measuring effects by fatalities or injuries.
+
+
+
+## Introduction
+
+This is the final assignment for the "Reproducible Research" course within the "Data Science: Foundations using R" specialization on Coursera.
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+The analysis attempts to answer two questions. 
+
+        1. Across the United States, which types of events are most harmful with respect to population health?  
+        2. Across the United States, which types of events have the greatest economic consequences?
+
+
+## Data Processing
+
+```{r DataLoading}
+
+if (!dir.exists(file.path(getwd(), "ProjectData"))) { 
+        dir.create(file.path(getwd(), "ProjectData"))
+}
+
+if (!file.exists("ProjectData/StormData.bz2")) {
+download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", 
+              "ProjectData/StormData.bz2")
+
+dateDownloaded <- date()
+
+}
+
+StormData <- read.csv2("ProjectData/StormData.bz2", sep = ",")
+
+```
+
+Data for the assignment was loaded from the course [website](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2).
+
+
+### Data on fatalities and injuries
+
+The dataset contains two separate measures to report weather effects on population health, the number of fatalities and the number of injuries. 
+
+Data on the number of fatalities and injuries per event are extracted from the raw data separately. 
+
+The respective data items are extracted and converted into a number format. Records with no fatalities are removed. In order to (slightly) improve the quality of the study results, all entered event types are converted to an uppercase spelling. 
+
+The same process is followed for the injuries reported, converting to number format, removing entries with no reported injuries, and conversion to uppercase. 
+
+There seems to be no sensible way to cumulate these two numbers and the results are therefore reported separately.
+Finally, the numbers of fatalities and injuries are summed by the type of weather event. Only the 10 most harmful event types are reported later. 
+
+```{r FatalityData}
+
+FatalityData <- StormData %>%
+        select(EVTYPE, FATALITIES) %>%
+        mutate(FATALITIES = as.numeric(FATALITIES)) %>%
+        filter(FATALITIES != 0) %>%
+        mutate(EVTYPE = str_to_upper(EVTYPE))
+
+FatalityEvent <- FatalityData %>%
+        group_by(EVTYPE) %>%
+        summarise(total = sum(FATALITIES)) %>%
+        slice_max(total, n = 10)
+
+```
+
+```{r InjuryData}
+
+InjuryData <- StormData %>%
+        select(EVTYPE, INJURIES) %>%
+        mutate(INJURIES = as.numeric(INJURIES)) %>%
+        filter(INJURIES != 0) %>%
+        mutate(EVTYPE = str_to_upper(EVTYPE))  
+
+InjuryEvent <- InjuryData %>%
+        group_by(EVTYPE) %>%
+        summarise(total = sum(INJURIES)) %>%
+        slice_max(total, n = 10)  
+
+```
+
+
+The dataset splits economic damage into damage on private and public property (buildings, objects, vegetation, infrastructure, facilities,  etc.) and on agriculture (crops), each measured in USD. 
+The total amount of economic damage is calculated by summing up both.
+
+The damage data has been coded in a way that alphabetical characters are used as multipliers to specify units, i.e.“K” for 1 thousand USD, “M” for 1 million USD, and “B” for 1 billion USD. When calculating the dollar amount, any other alphanumeric character is ignored as their meaning is unclear.  
+
+Again, the dollar value of economic damage is summed by the type of weather event. Only the 10 most harmful event types are reported later. 
+
+```{r PropertyDamage, echo=FALSE}
+
+PropertyData<- StormData %>%
+        select(EVTYPE, PROPDMG : CROPDMGEXP) %>%
+        mutate(PROPDMG = as.numeric(PROPDMG),
+               CROPDMG = as.numeric(CROPDMG))  %>%
+        filter((PROPDMG != 0) & (CROPDMG != 0)) %>%
+        mutate(EVTYPE = str_to_upper(EVTYPE))  
+
+PropertyData <- PropertyData %>%
+        mutate(PROPDMG = PROPDMG * case_when(PROPDMGEXP == "K" ~ 1000,
+                                             PROPDMGEXP == "M" ~ 1000000,
+                                             PROPDMGEXP == "B" ~ 1000000000,
+                                             TRUE ~ 1)) %>%
+        mutate(CROPDMG = CROPDMG * case_when(CROPDMGEXP == "K" ~ 1000,
+                                             CROPDMGEXP == "M" ~ 1000000,
+                                             CROPDMGEXP == "B" ~ 1000000000,
+                                             TRUE ~ 1)) %>%
+        mutate(USD = PROPDMG + CROPDMG)
+
+PropertyEvent <- PropertyData %>%
+        group_by(EVTYPE) %>%
+        summarise(total = sum(USD)) %>%
+        slice_max(total, n = 10) 
+
+```
+
+
+## Results
+
+Tornadoes have been by far the most dangerous weather event to the US population in the period between 1950 and November 2011. This is true if measured either by the number of people killed or measured by the number of people injured. 
+
+
+``` {r fatality_plot, echo = FALSE }
+
+FatalityEvent <-  FatalityEvent %>%
+        mutate(EVTYPE = fct_reorder(EVTYPE, total))
+
+ggplot(FatalityEvent, aes(x = EVTYPE, y = total)) + 
+        geom_bar(stat = "identity") + 
+        coord_flip() +
+        labs(title = "Population Health: top 10 most harmful event types -",
+             subtitle = "Number of Fatalities, 1950 - Nov 2011",
+             x ="", 
+             y = "",
+             caption = "Source: NOOA Storm Data") +
+        theme_light()
+```
+
+``` {r injury_plot, echo = FALSE }
+
+InjuryEvent <-  InjuryEvent %>%
+        mutate(EVTYPE = fct_reorder(EVTYPE, total))
+
+ggplot(InjuryEvent, aes(x = EVTYPE, y = total)) + 
+        geom_bar(stat = "identity") + 
+        coord_flip() +
+        labs(title = "Population Health: top 10 most harmful event types -",
+             subtitle = "Number of Injuries, 1950 - Nov 2011",
+             x ="", 
+             y = "",
+             caption = "Source: NOOA Storm Data") + 
+        theme_light()
+
+```
+
+
+
+
+``` {r damage_plot, echo = FALSE }
+
+PropertyEvent <- PropertyEvent %>%
+        mutate(EVTYPE = fct_reorder(EVTYPE, total))
+
+ggplot(PropertyEvent, aes(x = EVTYPE, y = total / 1000000000)) + 
+        geom_bar(stat = "identity") + 
+        coord_flip() +
+        labs(title = "Economic damage: top 10 most expensive event types -",
+             subtitle = "in bn USD, 1950 - Nov 2011",
+             x ="", 
+             y = "",
+             caption = "Source: NOOA Storm Data") + 
+        theme_light()
+
+```
+
+
+
+
+
+## System information
+
+```{r TechStuff, echo=FALSE}
+
+sessionInfo()
+
+```
